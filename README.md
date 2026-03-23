@@ -5,6 +5,7 @@ Synapse is a multimodal embedding + retrieval engine and a child-first tutor API
 - A tutoring endpoint that can combine voice, vision, and Socratic guidance
 - A minimal web UI for the tutor flow
 - Session logging + analytics via Supabase
+- A lightweight admin dashboard
 
 ## Quickstart
 
@@ -20,6 +21,7 @@ uvicorn app.main:app --reload
 ```
 
 Open the UI at `http://localhost:8000`.
+Open the admin dashboard at `http://localhost:8000/admin`.
 
 ## Supabase Setup (Vector Search + Analytics)
 
@@ -33,9 +35,11 @@ Notes:
 ## Endpoints
 
 - `GET /` (web UI)
+- `GET /admin` (analytics UI)
 - `GET /health`
 - `POST /v1/session/start` (JSON)
 - `POST /v1/session/event` (JSON)
+- `GET /v1/admin/summary` (JSON)
 - `POST /v1/transcribe` (multipart file `audio`)
 - `POST /v1/tts` (JSON)
 - `POST /v1/tutor` (JSON)
@@ -52,6 +56,7 @@ curl -X POST http://localhost:8000/v1/tutor \
     "question": "I do not understand this math problem",
     "grade_level": "Grade 5",
     "subject": "Math",
+    "mode": "math",
     "language": "en"
   }'
 ```
@@ -81,3 +86,4 @@ curl -X POST http://localhost:8000/v1/search \
 - The OpenAI API requires an API key and a billing-enabled account or trial credits.
 - Keep `SUPABASE_SERVICE_ROLE_KEY` server-side only.
 - Guardrails are enabled by default via `OPENAI_GUARD_ENABLED`.
+- `mode` supports `math`, `science`, and `reading`.

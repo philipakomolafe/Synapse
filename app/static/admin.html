@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synapse Admin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fraunces:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main class="page">
+      <section class="panel admin-hero">
+        <div>
+          <p class="eyebrow">Synapse · Admin</p>
+          <h1>Learning Analytics</h1>
+          <p class="lead">Quick visibility into usage, sessions, and tutoring activity.</p>
+        </div>
+        <div class="admin-actions">
+          <a class="ghost-link" href="/">Open Tutor UI</a>
+        </div>
+      </section>
+
+      <section class="admin-grid">
+        <div class="admin-card">
+          <h3>Total sessions</h3>
+          <div id="totalSessions" class="admin-metric">--</div>
+        </div>
+        <div class="admin-card">
+          <h3>Total interactions</h3>
+          <div id="totalInteractions" class="admin-metric">--</div>
+        </div>
+        <div class="admin-card">
+          <h3>Interactions (24h)</h3>
+          <div id="interactions24" class="admin-metric">--</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Recent interactions</h2>
+          <p>Latest tutor requests across modes and subjects.</p>
+        </div>
+        <div class="admin-table" id="recentTable">Loading...</div>
+      </section>
+    </main>
+
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

@@ -12,6 +12,7 @@ const speakToggle = document.getElementById("speakAnswer");
 const gradeEl = document.getElementById("grade");
 const subjectEl = document.getElementById("subject");
 const languageEl = document.getElementById("language");
+const modeEl = document.getElementById("mode");
 
 let mediaRecorder;
 let audioChunks = [];
@@ -136,14 +137,16 @@ async function askTutor() {
     question,
     grade_level: gradeEl.value || null,
     subject: subjectEl.value || null,
+    mode: modeEl.value || null,
     language: languageEl.value || "en",
     image_base64: imageBase64,
     image_mime: imageMime,
     session_id: sessionId,
-    use_retrieval: false
+    use_retrieval: false,
+    retrieval_top_k: 3
   };
 
-  logEvent("tutor_request", { has_image: Boolean(imageBase64) });
+  logEvent("tutor_request", { has_image: Boolean(imageBase64), mode: payload.mode });
 
   try {
     const res = await fetch("/v1/tutor", {

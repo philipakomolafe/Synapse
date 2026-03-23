@@ -8,8 +8,10 @@ class TutorRequest(BaseModel):
     image_mime: str = "image/jpeg"
     grade_level: Optional[str] = None
     subject: Optional[str] = None
+    mode: Optional[str] = None  # math | science | reading
     language: str = "en"
     use_retrieval: bool = False
+    retrieval_top_k: int = 3
     session_id: Optional[str] = None
 
 
@@ -81,3 +83,10 @@ class SessionEventRequest(BaseModel):
 
 class SessionEventResponse(BaseModel):
     ok: bool = True
+
+
+class AdminSummaryResponse(BaseModel):
+    total_sessions: int
+    total_interactions: int
+    interactions_24h: int
+    recent_interactions: List[Dict[str, Any]]

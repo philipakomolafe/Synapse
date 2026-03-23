@@ -20,6 +20,12 @@ Question:
 <your question back>
 """
 
+MODE_GUIDES = {
+    "math": "Use step-by-step reasoning, name the operation, and ask the learner to do the next step.",
+    "science": "Explain the concept with a simple example and ask a why/how question.",
+    "reading": "Help with vocabulary, summarize in one sentence, and ask a comprehension question.",
+}
+
 GUARD_PROMPT = """You are a safety and pedagogy checker for a child-first tutor.
 Return only JSON with keys:
 - "safe": true/false

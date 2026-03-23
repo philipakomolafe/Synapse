@@ -60,6 +60,7 @@ create table if not exists tutor_interactions (
     answer text not null,
     grade_level text,
     subject text,
+    mode text,
     language text,
     has_image boolean default false,
     guard jsonb,

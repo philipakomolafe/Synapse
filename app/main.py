@@ -1,6 +1,6 @@
 import io
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 from uuid import uuid4
@@ -10,8 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.prompts import GUARD_PROMPT, REVISION_PROMPT, TUTOR_PROMPT
+from app.prompts import GUARD_PROMPT, MODE_GUIDES, REVISION_PROMPT, TUTOR_PROMPT
 from app.schemas import (
+    AdminSummaryResponse,
     EmbedRequest,
     EmbedResponse,
     SearchRequest,
@@ -31,7 +32,7 @@ from app.services.openai_client import get_openai_client
 from app.services.supabase_client import get_supabase_client
 from app.settings import settings
 
-app = FastAPI(title="Synapse API", version="0.2.0")
+app = FastAPI(title="Synapse API", version="0.3.0")
 
 static_dir = Path(__file__).resolve().parent / "static"
 if static_dir.exists():
@@ -124,6 +125,14 @@ def index():
     raise HTTPException(status_code=404, detail="UI not found")
 
 
+@app.get("/admin")
+def admin_dashboard():
+    admin_path = static_dir / "admin.html"
+    if admin_path.exists():
+        return FileResponse(str(admin_path))
+    raise HTTPException(status_code=404, detail="Admin UI not found")
+
+
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
@@ -154,6 +163,42 @@ def log_session_event(request: SessionEventRequest) -> SessionEventResponse:
         "received_at": utc_now(),
     }).execute()
     return SessionEventResponse(ok=True)
+
+
+@app.get("/v1/admin/summary", response_model=AdminSummaryResponse)
+def admin_summary() -> AdminSummaryResponse:
+    supabase = get_supabase(required=True)
+
+    sessions_resp = supabase.table("sessions").select("id", count="exact").execute()
+    total_sessions = sessions_resp.count or 0
+
+    interactions_resp = supabase.table("tutor_interactions").select("id", count="exact").execute()
+    total_interactions = interactions_resp.count or 0
+
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    recent_24_resp = (
+        supabase.table("tutor_interactions")
+        .select("id", count="exact")
+        .gte("created_at", since)
+        .execute()
+    )
+    interactions_24h = recent_24_resp.count or 0
+
+    recent_resp = (
+        supabase.table("tutor_interactions")
+        .select("session_id,question,subject,mode,created_at,has_image")
+        .order("created_at", desc=True)
+        .limit(20)
+        .execute()
+    )
+    recent_interactions = recent_resp.data or []
+
+    return AdminSummaryResponse(
+        total_sessions=total_sessions,
+        total_interactions=total_interactions,
+        interactions_24h=interactions_24h,
+        recent_interactions=recent_interactions,
+    )
 
 
 @app.post("/v1/transcribe", response_model=TranscribeResponse)
@@ -291,7 +336,8 @@ def tutor(request: TutorRequest) -> TutorResponse:
     client = require_openai()
     sources: List[Dict[str, Any]] = []
 
-    if request.use_retrieval:
+    use_retrieval = request.use_retrieval or bool(request.mode) or bool(request.subject)
+    if use_retrieval:
         supabase = get_supabase(required=True)
         embedding_response = client.embeddings.create(
             model=settings.openai_embedding_model,
@@ -301,7 +347,7 @@ def tutor(request: TutorRequest) -> TutorResponse:
         query_embedding = embedding_response.data[0].embedding
         retrieval = supabase.rpc(
             "match_documents",
-            {"query_embedding": query_embedding, "match_count": 3},
+            {"query_embedding": query_embedding, "match_count": request.retrieval_top_k},
         ).execute()
         sources = retrieval.data or []
 
@@ -310,12 +356,18 @@ def tutor(request: TutorRequest) -> TutorResponse:
         snippets = [f"- {item.get('content', '')}" for item in sources]
         context_text = "\n\nRelevant notes:\n" + "\n".join(snippets)
 
+    mode_hint = MODE_GUIDES.get((request.mode or "").lower(), "")
+    if mode_hint:
+        mode_hint = f"Mode guidance: {mode_hint}\n"
+
     prompt = (
         f"{TUTOR_PROMPT}\n\n"
         f"Student question: {request.question}\n"
         f"Grade level: {request.grade_level or 'unknown'}\n"
         f"Subject: {request.subject or 'unknown'}\n"
+        f"Mode: {request.mode or 'general'}\n"
         f"Language: {request.language}\n"
+        f"{mode_hint}"
         f"{context_text}"
     ).strip()
 
@@ -354,6 +406,7 @@ def tutor(request: TutorRequest) -> TutorResponse:
                 "answer": answer,
                 "grade_level": request.grade_level,
                 "subject": request.subject,
+                "mode": request.mode,
                 "language": request.language,
                 "has_image": bool(request.image_base64),
                 "guard": guard,
