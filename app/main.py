@@ -32,7 +32,7 @@ from app.services.openai_client import get_openai_client
 from app.services.supabase_client import get_supabase_client
 from app.settings import settings
 
-app = FastAPI(title="Synapse API", version="0.3.0")
+app = FastAPI(title="Synapse API", version="0.3.1")
 
 static_dir = Path(__file__).resolve().parent / "static"
 if static_dir.exists():
@@ -78,6 +78,13 @@ def parse_guard_json(text: str) -> Dict[str, Any]:
             except Exception:
                 return {}
     return {}
+
+
+def openai_error(exc: Exception) -> HTTPException:
+    message = str(exc)
+    if "insufficient_quota" in message or "quota" in message:
+        return HTTPException(status_code=402, detail="OpenAI quota exceeded. Check billing and API limits.")
+    return HTTPException(status_code=502, detail=f"OpenAI error: {message}")
 
 
 def run_guard(client, answer_text: str) -> Dict[str, Any]:
@@ -140,58 +147,87 @@ def health() -> Dict[str, str]:
 
 @app.post("/v1/session/start", response_model=SessionStartResponse)
 def start_session(request: SessionStartRequest) -> SessionStartResponse:
-    supabase = get_supabase(required=True)
     session_id = str(uuid4())
-    supabase.table("sessions").insert({
-        "id": session_id,
-        "device_id": request.device_id,
-        "user_age": request.user_age,
-        "locale": request.locale,
-        "created_at": utc_now(),
-    }).execute()
+    supabase = get_supabase(required=False)
+    if supabase is not None:
+        try:
+            supabase.table("sessions").insert({
+                "id": session_id,
+                "device_id": request.device_id,
+                "user_age": request.user_age,
+                "locale": request.locale,
+                "created_at": utc_now(),
+            }).execute()
+        except Exception:
+            pass
     return SessionStartResponse(session_id=session_id)
 
 
 @app.post("/v1/session/event", response_model=SessionEventResponse)
 def log_session_event(request: SessionEventRequest) -> SessionEventResponse:
-    supabase = get_supabase(required=True)
-    supabase.table("session_events").insert({
-        "session_id": request.session_id,
-        "event_type": request.event_type,
-        "payload": request.payload,
-        "client_ts": request.client_ts,
-        "received_at": utc_now(),
-    }).execute()
-    return SessionEventResponse(ok=True)
+    supabase = get_supabase(required=False)
+    if supabase is None:
+        return SessionEventResponse(ok=False)
+
+    try:
+        supabase.table("session_events").insert({
+            "session_id": request.session_id,
+            "event_type": request.event_type,
+            "payload": request.payload,
+            "client_ts": request.client_ts,
+            "received_at": utc_now(),
+        }).execute()
+        return SessionEventResponse(ok=True)
+    except Exception:
+        return SessionEventResponse(ok=False)
 
 
 @app.get("/v1/admin/summary", response_model=AdminSummaryResponse)
 def admin_summary() -> AdminSummaryResponse:
-    supabase = get_supabase(required=True)
+    supabase = get_supabase(required=False)
+    if supabase is None:
+        return AdminSummaryResponse(
+            total_sessions=0,
+            total_interactions=0,
+            interactions_24h=0,
+            recent_interactions=[],
+        )
 
-    sessions_resp = supabase.table("sessions").select("id", count="exact").execute()
-    total_sessions = sessions_resp.count or 0
+    try:
+        sessions_resp = supabase.table("sessions").select("id").execute()
+        total_sessions = len(sessions_resp.data or [])
+    except Exception:
+        total_sessions = 0
 
-    interactions_resp = supabase.table("tutor_interactions").select("id", count="exact").execute()
-    total_interactions = interactions_resp.count or 0
+    try:
+        interactions_resp = supabase.table("tutor_interactions").select("id").execute()
+        total_interactions = len(interactions_resp.data or [])
+    except Exception:
+        total_interactions = 0
 
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    recent_24_resp = (
-        supabase.table("tutor_interactions")
-        .select("id", count="exact")
-        .gte("created_at", since)
-        .execute()
-    )
-    interactions_24h = recent_24_resp.count or 0
+    try:
+        recent_24_resp = (
+            supabase.table("tutor_interactions")
+            .select("id")
+            .gte("created_at", since)
+            .execute()
+        )
+        interactions_24h = len(recent_24_resp.data or [])
+    except Exception:
+        interactions_24h = 0
 
-    recent_resp = (
-        supabase.table("tutor_interactions")
-        .select("session_id,question,subject,mode,created_at,has_image")
-        .order("created_at", desc=True)
-        .limit(20)
-        .execute()
-    )
-    recent_interactions = recent_resp.data or []
+    try:
+        recent_resp = (
+            supabase.table("tutor_interactions")
+            .select("session_id,question,subject,mode,created_at,has_image")
+            .order("created_at", desc=True)
+            .limit(20)
+            .execute()
+        )
+        recent_interactions = recent_resp.data or []
+    except Exception:
+        recent_interactions = []
 
     return AdminSummaryResponse(
         total_sessions=total_sessions,
@@ -218,7 +254,7 @@ async def transcribe_audio(audio: UploadFile = File(...)) -> TranscribeResponse:
             response_format="text",
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Transcription failed: {exc}")
+        raise openai_error(exc)
 
     text = getattr(result, "text", None)
     if text is None:
@@ -240,14 +276,17 @@ def text_to_speech(request: TTSRequest):
     media_type = media_types.get(request.response_format, "audio/mpeg")
 
     def stream_audio():
-        with client.audio.speech.with_streaming_response.create(
-            model=settings.openai_tts_model,
-            voice=request.voice,
-            input=request.text,
-            response_format=request.response_format,
-        ) as response:
-            for chunk in response.iter_bytes():
-                yield chunk
+        try:
+            with client.audio.speech.with_streaming_response.create(
+                model=settings.openai_tts_model,
+                voice=request.voice,
+                input=request.text,
+                response_format=request.response_format,
+            ) as response:
+                for chunk in response.iter_bytes():
+                    yield chunk
+        except Exception:
+            return
 
     return StreamingResponse(stream_audio(), media_type=media_type)
 
@@ -255,11 +294,15 @@ def text_to_speech(request: TTSRequest):
 @app.post("/v1/embeddings", response_model=EmbedResponse)
 def create_embeddings(request: EmbedRequest) -> EmbedResponse:
     client = require_openai()
-    response = client.embeddings.create(
-        model=settings.openai_embedding_model,
-        input=request.inputs,
-        dimensions=settings.openai_embedding_dims,
-    )
+    try:
+        response = client.embeddings.create(
+            model=settings.openai_embedding_model,
+            input=request.inputs,
+            dimensions=settings.openai_embedding_dims,
+        )
+    except Exception as exc:
+        raise openai_error(exc)
+
     vectors = [item.embedding for item in response.data]
 
     if request.store:
@@ -285,11 +328,15 @@ def upsert_documents(request: UpsertDocumentsRequest) -> UpsertDocumentsResponse
     supabase = get_supabase(required=True)
 
     contents = [doc.content for doc in request.documents]
-    response = client.embeddings.create(
-        model=settings.openai_embedding_model,
-        input=contents,
-        dimensions=settings.openai_embedding_dims,
-    )
+    try:
+        response = client.embeddings.create(
+            model=settings.openai_embedding_model,
+            input=contents,
+            dimensions=settings.openai_embedding_dims,
+        )
+    except Exception as exc:
+        raise openai_error(exc)
+
     vectors = [item.embedding for item in response.data]
 
     rows: List[Dict[str, Any]] = []
@@ -316,11 +363,15 @@ def search_documents(request: SearchRequest) -> SearchResponse:
     client = require_openai()
     supabase = get_supabase(required=True)
 
-    embedding_response = client.embeddings.create(
-        model=settings.openai_embedding_model,
-        input=request.query,
-        dimensions=settings.openai_embedding_dims,
-    )
+    try:
+        embedding_response = client.embeddings.create(
+            model=settings.openai_embedding_model,
+            input=request.query,
+            dimensions=settings.openai_embedding_dims,
+        )
+    except Exception as exc:
+        raise openai_error(exc)
+
     query_embedding = embedding_response.data[0].embedding
 
     response = supabase.rpc(
@@ -338,18 +389,22 @@ def tutor(request: TutorRequest) -> TutorResponse:
 
     use_retrieval = request.use_retrieval or bool(request.mode) or bool(request.subject)
     if use_retrieval:
-        supabase = get_supabase(required=True)
-        embedding_response = client.embeddings.create(
-            model=settings.openai_embedding_model,
-            input=request.question,
-            dimensions=settings.openai_embedding_dims,
-        )
-        query_embedding = embedding_response.data[0].embedding
-        retrieval = supabase.rpc(
-            "match_documents",
-            {"query_embedding": query_embedding, "match_count": request.retrieval_top_k},
-        ).execute()
-        sources = retrieval.data or []
+        supabase = get_supabase(required=False)
+        if supabase is not None:
+            try:
+                embedding_response = client.embeddings.create(
+                    model=settings.openai_embedding_model,
+                    input=request.question,
+                    dimensions=settings.openai_embedding_dims,
+                )
+                query_embedding = embedding_response.data[0].embedding
+                retrieval = supabase.rpc(
+                    "match_documents",
+                    {"query_embedding": query_embedding, "match_count": request.retrieval_top_k},
+                ).execute()
+                sources = retrieval.data or []
+            except Exception:
+                sources = []
 
     context_text = ""
     if sources:
@@ -384,7 +439,7 @@ def tutor(request: TutorRequest) -> TutorResponse:
             input=[{"role": "user", "content": content}],
         )
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Tutor request failed: {exc}")
+        raise openai_error(exc)
 
     answer = getattr(response, "output_text", None) or str(response)
     guard = run_guard(client, answer)
@@ -393,24 +448,30 @@ def tutor(request: TutorRequest) -> TutorResponse:
     while settings.openai_guard_enabled and retries < settings.openai_guard_max_retries:
         if guard.get("safe") is True and guard.get("teaches") is True:
             break
-        answer = revise_answer(client, answer, guard.get("notes", ""))
-        guard = run_guard(client, answer)
+        try:
+            answer = revise_answer(client, answer, guard.get("notes", ""))
+            guard = run_guard(client, answer)
+        except Exception:
+            break
         retries += 1
 
     if request.session_id:
         supabase = get_supabase(required=False)
         if supabase is not None:
-            supabase.table("tutor_interactions").insert({
-                "session_id": request.session_id,
-                "question": request.question,
-                "answer": answer,
-                "grade_level": request.grade_level,
-                "subject": request.subject,
-                "mode": request.mode,
-                "language": request.language,
-                "has_image": bool(request.image_base64),
-                "guard": guard,
-                "created_at": utc_now(),
-            }).execute()
+            try:
+                supabase.table("tutor_interactions").insert({
+                    "session_id": request.session_id,
+                    "question": request.question,
+                    "answer": answer,
+                    "grade_level": request.grade_level,
+                    "subject": request.subject,
+                    "mode": request.mode,
+                    "language": request.language,
+                    "has_image": bool(request.image_base64),
+                    "guard": guard,
+                    "created_at": utc_now(),
+                }).execute()
+            except Exception:
+                pass
 
     return TutorResponse(answer=answer, sources=sources, guard=guard)
