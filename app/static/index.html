@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Synapse Tutor</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fraunces:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Synapse · Child-first learning</p>
+          <h1>Speak. Snap. Learn.</h1>
+          <p class="lead">
+            A multimodal tutor that listens, sees, and teaches instead of just answering.
+          </p>
+        </div>
+        <div class="hero-card">
+          <div class="stat">
+            <span>Voice-first</span>
+            <strong>Less friction</strong>
+          </div>
+          <div class="stat">
+            <span>Vision-aware</span>
+            <strong>Real homework</strong>
+          </div>
+          <div class="stat">
+            <span>Socratic</span>
+            <strong>Active learning</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Ask the tutor</h2>
+          <p>Use voice, add a photo if needed, and get a step-by-step answer.</p>
+        </div>
+
+        <div class="controls">
+          <div class="control">
+            <label>Grade level</label>
+            <input id="grade" type="text" placeholder="Grade 5" />
+          </div>
+          <div class="control">
+            <label>Subject</label>
+            <input id="subject" type="text" placeholder="Math" />
+          </div>
+          <div class="control">
+            <label>Language</label>
+            <input id="language" type="text" value="en" />
+          </div>
+        </div>
+
+        <div class="voice-row">
+          <button id="recordBtn" class="primary">Start recording</button>
+          <button id="stopBtn" class="ghost" disabled>Stop</button>
+          <span id="recordingStatus">Ready</span>
+        </div>
+
+        <div class="textarea-block">
+          <label>Question</label>
+          <textarea id="question" rows="5" placeholder="Type or record a question..."></textarea>
+        </div>
+
+        <div class="image-block">
+          <label>Attach homework photo (optional)</label>
+          <input id="image" type="file" accept="image/*" />
+          <img id="preview" alt="Preview" />
+        </div>
+
+        <div class="action-row">
+          <label class="toggle">
+            <input id="speakAnswer" type="checkbox" checked />
+            <span>Speak the answer</span>
+          </label>
+          <button id="askBtn" class="primary">Ask tutor</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Response</h2>
+          <p>Synapse will guide the learner and ask a question back.</p>
+        </div>
+        <div id="answer" class="answer">Waiting for a question...</div>
+        <audio id="audio" controls class="audio"></audio>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
